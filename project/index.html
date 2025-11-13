@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能交通灯系统</title>
+    <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 10px;
+        }
+        
+        .traffic-light {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .traffic-light.green {
+            background: #e8f5e8;
+            border: 2px solid #4CAF50;
+        }
+        
+        .traffic-light.red {
+            background: #ffeaea;
+            border: 2px solid #f44336;
+        }
+        
+        .light-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 15px;
+        }
+        
+        .light-indicator.green {
+            background: #4CAF50;
+            box-shadow: 0 0 10px #4CAF50;
+        }
+        
+        .light-indicator.red {
+            background: #f44336;
+        }
+        
+        .vehicle-count {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 12px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .last-update {
+            text-align: center;
+            color: white;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+        
+        .loading {
+            text-align: center;
+            color: white;
+            font-size: 1.2em;
+        }
+        
+        .direction-name {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚦 智能交通灯监控系统</h1>
+            <p>实时监控交通流量和信号灯状态</p>
+        </div>
+        
+        <div id="loading" class="loading">正在连接数据库...</div>
+        
+        <div class="dashboard" style="display: none;" id="dashboard">
+            <!-- 交通灯状态 -->
+            <div class="card">
+                <h2>📊 交通灯状态</h2>
+                <div id="trafficLights"></div>
+            </div>
+            
+            <!-- 车辆计数 -->
+            <div class="card">
+                <h2>🚗 车辆计数</h2>
+                <div id="vehicleCounts"></div>
+            </div>
+            
+            <!-- 系统状态 -->
+            <div class="card">
+                <h2>⚙️ 系统状态</h2>
+                <div id="systemStatus"></div>
+            </div>
+        </div>
+        
+        <!-- 历史数据图表 -->
+        <div class="chart-container" style="display: none;" id="historyChart">
+            <h2>📈 历史车辆流量</h2>
+            <canvas id="trafficChart" width="400" height="200"></canvas>
+        </div>
+        
+        <div class="last-update" id="lastUpdate"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Firebase配置 - 替换为你的配置
+        const firebaseConfig = {
+          apiKey: "AIzaSyDPogwyRA8L0CMqXvn-1eGrIK3ttRwZ6zI",
+          authDomain: "traffic-system-5bd8a.firebaseapp.com",
+          projectId: "traffic-system-5bd8a",
+          storageBucket: "traffic-system-5bd8a.firebasestorage.app",
+          messagingSenderId: "1079959310987",
+          appId: "1:1079959310987:web:a152591e947fe604e5ba8e",
+          measurementId: "G-1DGQFXJG0Y"
+        };
+        
+        // 初始化 Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        let trafficChart = null;
+        const directionNames = {
+            'east': '东方向',
+            'south': '南方向', 
+            'west': '西方向',
+            'north': '北方向'
+        };
+
+        // 监听实时数据
+        db.collection('trafficData').orderBy('timestamp', 'desc').limit(1)
+            .onSnapshot((snapshot) => {
+                if (!snapshot.empty) {
+                    const data = snapshot.docs[0].data();
+                    updateDashboard(data);
+                    updateChart(data);
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('dashboard').style.display = 'grid';
+                    document.getElementById('historyChart').style.display = 'block';
+                }
+            });
+
+        // 获取历史数据
+        function loadHistoryData() {
+            db.collection('trafficData')
+                .orderBy('timestamp', 'desc')
+                .limit(50)
+                .get()
+                .then((snapshot) => {
+                    const historyData = [];
+                    snapshot.forEach(doc => {
+                        historyData.push(doc.data());
+                    });
+                    updateHistoryChart(historyData.reverse());
+                });
+        }
+
+        function updateDashboard(data) {
+            // 更新交通灯状态
+            updateTrafficLights(data.current_direction);
+            
+            // 更新车辆计数
+            updateVehicleCounts(data);
+            
+            // 更新系统状态
+            updateSystemStatus(data);
+            
+            // 更新最后更新时间
+            document.getElementById('lastUpdate').textContent = 
+                `最后更新: ${new Date().toLocaleString()}`;
+        }
+
+        function updateTrafficLights(currentDirection) {
+            const directions = ['east', 'south', 'west', 'north'];
+            const container = document.getElementById('trafficLights');
+            container.innerHTML = '';
+            
+            directions.forEach((dir, index) => {
+                const isGreen = index === currentDirection;
+                const light = document.createElement('div');
+                light.className = `traffic-light ${isGreen ? 'green' : 'red'}`;
+                light.innerHTML = `
+                    <div style="display: flex; align-items: center;">
+                        <div class="light-indicator ${isGreen ? 'green' : 'red'}"></div>
+                        <span class="direction-name">${directionNames[dir]}</span>
+                    </div>
+                    <span>${isGreen ? '🟢 通行' : '🔴 停止'}</span>
+                `;
+                container.appendChild(light);
+            });
+        }
+
+        function updateVehicleCounts(data) {
+            const container = document.getElementById('vehicleCounts');
+            container.innerHTML = '';
+            
+            Object.keys(directionNames).forEach(dir => {
+                const count = data[`${dir}_count`] || 0;
+                const item = document.createElement('div');
+                item.className = 'status-item';
+                item.innerHTML = `
+                    <span class="direction-name">${directionNames[dir]}</span>
+                    <span class="vehicle-count">${count} 辆</span>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function updateSystemStatus(data) {
+            const container = document.getElementById('systemStatus');
+            container.innerHTML = `
+                <div class="status-item">
+                    <span>💡 路灯状态</span>
+                    <span>${data.street_lights === 'on' ? '开启' : '关闭'}</span>
+                </div>
+                <div class="status-item">
+                    <span>🌞 环境光线</span>
+                    <span>${data.light_level || 0}</span>
+                </div>
+                <div class="status-item">
+                    <span>🔄 运行模式</span>
+                    <span>${getCurrentMode(data)}</span>
+                </div>
+                <div class="status-item">
+                    <span>⏰ 运行时间</span>
+                    <span>${data.timestamp ? new Date(data.timestamp.seconds * 1000).toLocaleTimeString() : '未知'}</span>
+                </div>
+            `;
+        }
+
+        function getCurrentMode(data) {
+            // 这里可以根据数据判断当前模式
+            return data.priority_mode ? '优先通行模式' : '正常循环模式';
+        }
+
+        function updateChart(data) {
+            // 实时数据图表更新
+        }
+
+        function updateHistoryChart(historyData) {
+            const ctx = document.getElementById('trafficChart').getContext('2d');
+            
+            if (trafficChart) {
+                trafficChart.destroy();
+            }
+            
+            const labels = historyData.map((d, i) => {
+                const date = new Date(d.timestamp.seconds * 1000);
+                return date.toLocaleTimeString();
+            });
+            
+            trafficChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '东方向',
+                            data: historyData.map(d => d.east_count),
+                            borderColor: '#FF6384',
+                            backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: '南方向',
+                            data: historyData.map(d => d.south_count),
+                            borderColor: '#36A2EB',
+                            backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: '西方向',
+                            data: historyData.map(d => d.west_count),
+                            borderColor: '#FFCE56',
+                            backgroundColor: 'rgba(255, 206, 86, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: '北方向',
+                            data: historyData.map(d => d.north_count),
+                            borderColor: '#4BC0C0',
+                            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '各方向车辆流量趋势'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: '车辆数量'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: '时间'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 页面加载时获取历史数据
+        window.addEventListener('load', loadHistoryData);
+    </script>
+</body>
+</html>
